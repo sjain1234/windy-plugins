@@ -74,11 +74,13 @@ function drag(cbf){
     let tries=0;
     let mapMovef=e=>{
         let ll=map.containerPointToLatLng([0,180]);
-        ll.lng=map.getCenter().lng;
+        ll.lon=ll.lng=map.getCenter().lng;
         cbf(ll);
     }
     let pckrMovef=e=>{
-        cbf(e.target._latlng);
+        let ll=e.target._latlng;
+        ll.lon=ll.lng;
+        cbf(ll);
     }
     let wait4pckr=()=>{
         if (!rs.isMobile){
