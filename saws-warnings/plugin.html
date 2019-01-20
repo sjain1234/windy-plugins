@@ -1,0 +1,241 @@
+<plugin>
+	<!-- this Plugin does not have any HTML content -->
+	<script>
+	// Windy API modules are imported via '@windy/nameOfModule'
+	import map from '@windy/map'
+	import _ from '@windy/utils'
+	import store from '@windy/store'
+	import bcast from '@windy/broadcast'
+    import picker from '@windy/picker'
+    import $ from '@windy/$'
+    import overlays from '@windy/overlays'
+    import rs from '@windy/rootScope'
+
+    import pickerT from './pickerTools.mjs'
+
+    let saws;
+    let warningGJ;
+    let sawsLoaded=false;
+    let sawsDay="Today";
+    map.setView([-28.2,25.2],5);
+
+    ////make info at bottom left
+    let strt=document.createElement("div");
+    strt.innerHTML=`SA Weather Service Warnings<br>
+                    <span style='font-size:11px'>
+                        Showing: <span id='saws_period'></span><br>
+                        Updated: <span id='saws_time'>STILL&nbsp;LOADING...</span><br>
+                        Click this box to show/hide<br>
+                        Data from <a href='http://www.weathersa.co.za/'>http://www.weathersa.co.za/</a><span>
+                    `;
+    strt.id="start-button";
+    if (rs.isMobile){
+        strt.style.bottom="140px";
+        setTimeout(()=>{  //move down if enough space
+            if(strt.offsetWidth+20<(window.innerWidth-$("#mobile_box").offsetWidth)/2) strt.style.bottom="110px";
+        });
+    }
+    else if (rs.isTablet) strt.style.bottom="110px";
+    else strt.style.bottom="70px";
+
+    strt.addEventListener("click",()=>{
+        if (saws){
+            if (map.hasLayer(saws)){
+                map.removeLayer(saws);
+                sawsLoaded=false;
+                pickerT.hideLeftDiv(); pickerT.hideRightDiv();
+            } else{
+                saws.addTo(map);
+                sawsLoaded=true;
+                if(picker.getParams)checkPolyFillPicker(picker.getParams());
+            }
+        }
+    });
+    if(rs.isMobile) $("#mobile-calendar").appendChild(strt);
+    else     $('#bottom').appendChild(strt);
+
+    ////make picker div content
+    let leftDiv=document.createElement("div");
+    let leftName=document.createElement("span");
+    leftName.id="region-name";
+    leftName.style.fontSize="12px";
+    leftDiv.appendChild(leftName);
+    let lvlInfo=document.createElement("div");
+    let st={position:"absolute",right:"15px",top:"110%",display:"none",radius:"4px",padding:"2px",backgroundColor:"rgba(0,0,0,0.3)"};
+    for (let p in st)lvlInfo.style[p]=st[p];
+    lvlInfo.innerHTML=`Level 1: No alerts<br>
+                 Level 2: Special weather advisory:<br>
+        &nbsp;&nbsp;An alert raising awareness<br>
+                 Level 3: Severe weather watch:<br>
+        &nbsp;&nbsp;Alert calling for preparedness<br>
+        &nbsp;&nbsp;to weather hazards<br>
+                 Level 4: Severe weather warning<:br>
+        &nbsp;&nbsp;Alert calling for reaction due<br>
+        &nbsp;&nbsp;to a very high certainty of a<br>
+        &nbsp;&nbsp;severe weather hazard`;
+    leftDiv.appendChild(lvlInfo);
+
+    let rightDiv=document.createElement("div");
+    let rightLevel=document.createElement("div");
+    st={userSelect:"none", cursor:"pointer", fontSize:"11px"};
+    for (let p in st) rightLevel.style[p]=st[p];
+    rightLevel.addEventListener("mousedown",()=>lvlInfo.style.display="block");
+    rightLevel.addEventListener("touchstart",()=>lvlInfo.style.display="block");
+    rightLevel.addEventListener("mouseup",()=>lvlInfo.style.display="none");
+    rightLevel.addEventListener("touchend",()=>lvlInfo.style.display="none");
+    rightDiv.appendChild(rightLevel);
+    let rightText=document.createElement("div");
+    rightDiv.appendChild(rightText);
+
+    //try to add in case picker already open.
+    pickerT.fillLeftDiv(leftDiv);       pickerT.hideLeftDiv();
+    pickerT.fillRightDiv(rightDiv);     pickerT.hideRightDiv();
+
+    function regionColor(lvl){
+        switch (Number(lvl)){
+            case 1: return "green";
+            case 2: return "yellow";
+            case 3: return "orange";
+            case 4: return "red";
+        }
+    }
+
+    ////change feature style and picker divs on timestamp change
+    store.on("timestamp",e=>{
+        let d=new Date(e);
+        let mspd=24*60*60*1000;
+        let daynow=Math.floor(Date.now()/mspd);
+        let dayts=Math.floor(e/(mspd));
+        let dayd=dayts-daynow;
+        let newSawsDay="Today";
+        if (dayd<=0) newSawsDay="Today";
+        else if (dayd==1) newSawsDay="Tomorrow";
+        else if (dayd>1 && dayd<5) newSawsDay="D3D5";
+        else newSawsDay="D6";
+        if (newSawsDay!=sawsDay){
+            sawsDay=newSawsDay;
+            saws.setStyle(feature=>{
+                return{color:sawsDay!="D6"?regionColor(feature.properties.periods[sawsDay].level):"rgba(200,200,200,0.7)"}
+            });
+            $("#saws_period").innerHTML=sawsDay;
+        }
+        if (picker.getParams) checkPolyFillPicker(picker.getParams());
+    });
+
+    ////load geojson
+    let loadTry=0;
+    function cleanNames(f){
+        for (let i=0;i<f.length;i++){
+            f[i].properties.name=f[i].properties.name.split("/")
+                                .map(e=>e.trim())
+                                .filter((e,i,a)=>{return e && a.indexOf(e)===i})
+                                .join("<br>");
+        }
+    }
+    function loadSAWSMarine(){
+        fetch(`https://www.openaipgeojson.com/saws/readsaws.php?mar=true`).then((r)=>r.json()).then(r=>{
+            cleanNames(r.features);
+            saws.addData(r.features);
+            warningGJ=warningGJ.concat(r.features);
+        }).catch(error=>{
+            loadTry++;
+            if(loadTry<5) setTimeout(loadSAWS,3000);
+        });;
+    }
+    function loadSAWS(){
+        fetch(`https://www.openaipgeojson.com/saws/readsaws.php`).then((r)=>r.json()).then(r=>{
+            cleanNames(r.features);
+            warningGJ=r.features;
+            saws=L.geoJson(warningGJ,{
+                style: feature=>{return {weight:1, fill:0, opacity:0.8, color:regionColor(feature.properties.periods[sawsDay].level)};},
+                onEachFeature:(feature,layer)=>{layer.on("click",e=>{bcast.fire("rqstOpen","picker",{lat:e.latlng.lat,lon:e.latlng.lng});})}
+            }).addTo(map);
+            $("#saws_time").innerHTML=r.saws_time;
+            $("#saws_period").innerHTML=sawsDay;
+            sawsLoaded=true;
+            loadTry=0;
+            loadSAWSMarine();
+        }).catch(error=>{
+            console.log(error);
+            loadTry++;
+            if(loadTry<5) setTimeout(loadSAWS,3000);
+            else $("#saws_time").innerHTML="FAILED TO LOAD,  try again later";
+        });
+    }
+    loadSAWS();
+
+    ////picker listeners
+    picker.on("pickerOpened", e=>{
+        pickerT.fillLeftDiv(leftDiv);       pickerT.hideLeftDiv();
+        pickerT.fillRightDiv(rightDiv);     pickerT.hideRightDiv();
+        checkPolyFillPicker(e);
+    });
+    picker.on("pickerMoved",    checkPolyFillPicker);
+    pickerT.drag(               checkPolyFillPicker);
+
+    ////algorithm from github --- Author: substack  --- point-in-polygon, MIT lic
+    const checkPoly= function(point, vs) {
+        var x = point[0], y = point[1];
+        var inside = false;
+        for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+            var xi = vs[i][0], yi = vs[i][1];
+            var xj = vs[j][0], yj = vs[j][1];
+            var intersect = ((yi > y) != (yj > y))
+             && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
+    ////identify polygon,  change feature style,  reset all other features,  fill picker divs
+    let fnd=true;  let fndPrev=false;
+    function checkPolyFillPicker(ll){
+        if (sawsLoaded){       //check if layer loaded on map
+            if (fnd){          //fnd=false when still checking polygons
+                let p=[ll.lng||ll.lon,ll.lat];
+                fnd=false;
+                for (let i=0; i<warningGJ.length&&!fnd;i++){
+                    for (let j=0;j<warningGJ[i].geometry.coordinates.length&&!fnd;j++)
+                        fnd=checkPoly(p,warningGJ[i].geometry.coordinates[j]);
+                    if (fnd){
+                        let fp=warningGJ[i].properties;
+                        let txt="";
+                        if (sawsDay!="D6"){
+                            rightLevel.innerHTML=`<span style="text-decoration:underline">Level:${fp.periods[sawsDay].level}</span> - ${fp.periods[sawsDay].levelName}`;
+                            if (fp.periods[sawsDay].level>1)
+                                for (var prop in fp.periods[sawsDay].params){
+                                    let pprop=fp.periods[sawsDay].params[prop];
+                                     txt+=`<span style="font-size:11px">${pprop.name}</span>&nbsp;(Lvl:${pprop.level})<br>
+                                     &nbsp;&nbsp;&nbsp;&nbsp;Days valid:&nbsp;${pprop.validityMin} - ${pprop.validityMax}<br>`;
+                                }
+                        }  else {
+                            rightLevel.innerHTML="";
+                            txt="D6+ : No data yet.";
+                        }
+                        rightText.innerHTML=txt;
+                        leftName.innerHTML=fp.name;
+                        pickerT.showLeftDiv();
+                        pickerT.showRightDiv();
+                        fndPrev=true;
+                        saws.setStyle(feature=>{
+                            if (fp.name==feature.properties.name){
+                                    return {weight:3, fill:1, opacity:1}
+                            } else  return {weight:1, fill:0, opacity:0.8};
+                        });
+                    }
+                }
+                if(!fnd){
+                    if (fndPrev) {
+                        pickerT.hideLeftDiv();
+                        pickerT.hideRightDiv();
+                        saws.setStyle(feature=>{return {weight:1, fill:0, opacity:0.8}});
+                        fndPrev=false;
+                    }
+                }
+                else fnd=false;
+                setTimeout(()=>{fnd=true},100); //probably not necessary ---- pause before checking next point in poly.
+            }
+        }
+    }
+	</script>
+</plugin>
