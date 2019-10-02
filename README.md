@@ -15,7 +15,7 @@ cd windy-plugins
 npm i
 npm start
 ```
-Now open your browser browser at [https://localhost:9999/plugin.js](https://localhost:9999/plugin.js) to accept self signed SSL certificate.
+Now open your browser at [https://localhost:9999/plugin.js](https://localhost:9999/plugin.js) to accept self signed SSL certificate.
 
 Then open your browser at [www.windy.com/dev](https://www.windy.com/dev) to test your plugin.
 
